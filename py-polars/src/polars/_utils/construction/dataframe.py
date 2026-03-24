@@ -1253,15 +1253,12 @@ def numpy_to_pydf(
                 orient = "row"
 
             elif orient is None and schema is not None:
-                # infer orientation from 'schema' param; if square array
-                # we check the flags to establish row/column major order
+                # infer orientation from 'schema' param; if ambiguous,
+                # preserve the default convention where axis 0 = rows
                 n_schema_cols = len(schema)
                 if n_schema_cols == shape[0] and n_schema_cols != shape[1]:
                     orient = "col"
                     n_columns = shape[0]
-                elif data.flags["F_CONTIGUOUS"] and shape[0] == shape[1]:
-                    orient = "col"
-                    n_columns = n_schema_cols
                 else:
                     orient = "row"
                     n_columns = shape[1]

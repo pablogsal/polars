@@ -585,10 +585,10 @@ def test_init_ndarray() -> None:
 
     # round trip export/init
     for shape in ((4, 4), (4, 8), (8, 4)):
-        np_ones = np.ones(shape=shape, dtype=np.float64)
+        np_values = np.arange(np.prod(shape), dtype=np.float64).reshape(shape)
         names = [f"c{i}" for i in range(shape[1])]
 
-        df = pl.DataFrame(np_ones, schema=names)
+        df = pl.DataFrame(np_values, schema=names)
         assert_frame_equal(df, pl.DataFrame(np.asarray(df), schema=names))
 
 
@@ -644,26 +644,28 @@ def test_init_ndarray_nan() -> None:
 
 
 def test_init_ndarray_square() -> None:
-    # 2D square array; ensure that we maintain convention
-    # (first axis = rows) with/without an explicit schema
-    arr = np.arange(4).reshape(2, 2)
-    assert (
-        [(0, 1), (2, 3)]
-        == pl.DataFrame(arr).rows()
-        == pl.DataFrame(arr, schema=["a", "b"]).rows()
-    )
-    # check that we tie-break square arrays using fortran vs c-contiguous row/col major
-    df_c = pl.DataFrame(
-        data=np.array([[1, 2], [3, 4]], dtype=np.int64, order="C"),
-        schema=["x", "y"],
-    )
-    assert_frame_equal(df_c, pl.DataFrame({"x": [1, 3], "y": [2, 4]}))
+    expected_default = [(0, 1), (2, 3)]
+    expected_with_schema = pl.DataFrame({"x": [1, 3], "y": [2, 4]})
+    expected_col_oriented = pl.DataFrame({"x": [1, 2], "y": [3, 4]})
 
-    df_f = pl.DataFrame(
-        data=np.array([[1, 2], [3, 4]], dtype=np.int64, order="F"),
-        schema=["x", "y"],
-    )
-    assert_frame_equal(df_f, pl.DataFrame({"x": [1, 2], "y": [3, 4]}))
+    for arr in (
+        np.array([[0, 1], [2, 3]], dtype=np.int64, order="C"),
+        np.array([[0, 1], [2, 3]], dtype=np.int64, order="F"),
+    ):
+        assert pl.DataFrame(arr).rows() == expected_default
+
+    for arr in (
+        np.array([[1, 2], [3, 4]], dtype=np.int64, order="C"),
+        np.array([[1, 2], [3, 4]], dtype=np.int64, order="F"),
+    ):
+        assert_frame_equal(
+            pl.DataFrame(data=arr, schema=["x", "y"]),
+            expected_with_schema,
+        )
+        assert_frame_equal(
+            pl.DataFrame(data=arr, schema=["x", "y"], orient="col"),
+            expected_col_oriented,
+        )
 
 
 def test_init_numpy_unavailable(plmonkeypatch: PlMonkeyPatch) -> None:

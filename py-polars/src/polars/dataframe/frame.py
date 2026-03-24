@@ -243,8 +243,9 @@ class DataFrame:
         instead.
     orient : {'col', 'row'}, default None
         Whether to interpret two-dimensional data as columns or as rows. If None,
-        the orientation is inferred by matching the columns and data dimensions. If
-        this does not yield conclusive results, column orientation is used.
+        the orientation is inferred by matching the columns and data dimensions.
+        For two-dimensional NumPy arrays and torch tensors, non-conclusive cases
+        default to row orientation.
     infer_schema_length : int or None
         The maximum number of rows to scan for schema inference. If set to `None`, the
         full data may be scanned *(this can be slow)*. This parameter only applies if

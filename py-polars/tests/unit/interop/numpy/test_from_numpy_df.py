@@ -42,6 +42,29 @@ def test_from_numpy() -> None:
         _ = pl.from_numpy(np.array(1))
 
 
+def test_from_numpy_square_schema_preserves_row_orientation() -> None:
+    expected = pl.DataFrame({"a": [1, 3], "b": [2, 4]})
+    expected_col_oriented = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
+
+    for arr in (
+        np.array([[1, 2], [3, 4]], dtype=np.int64, order="C"),
+        np.array([[1, 2], [3, 4]], dtype=np.int64, order="F"),
+    ):
+        assert_frame_equal(pl.from_numpy(arr, schema=["a", "b"]), expected)
+        assert_frame_equal(
+            pl.from_numpy(arr, schema=["a", "b"], orient="col"),
+            expected_col_oriented,
+        )
+
+
+def test_from_numpy_roundtrip_with_schema() -> None:
+    df = pl.DataFrame({"a": [0, 3, 6], "b": [1, 4, 7], "c": [2, 5, 8]})
+    np_data = df.to_numpy()
+
+    assert pl.from_numpy(np_data).rows() == df.rows()
+    assert_frame_equal(pl.from_numpy(np_data, schema=df.columns), df)
+
+
 def test_from_numpy_array_value() -> None:
     df = pl.DataFrame({"A": [[2, 3]]})
     assert df.rows() == [([2, 3],)]

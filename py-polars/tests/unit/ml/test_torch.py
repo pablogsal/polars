@@ -413,6 +413,22 @@ def test_from_torch() -> None:
     ):
         assert_frame_equal(expected_frame, df)
 
+    square_t = torch.tensor([[1, 2], [3, 4]])
+    expected_square = pl.DataFrame({"a": [1, 3], "b": [2, 4]})
+    expected_square_col_oriented = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
+
+    for df in (
+        pl.DataFrame(square_t, schema=["a", "b"]),  # type: ignore[arg-type]
+        pl.from_torch(square_t, schema=["a", "b"]),  # type: ignore[arg-type]
+    ):
+        assert_frame_equal(expected_square, df)
+
+    for df in (
+        pl.DataFrame(square_t, schema=["a", "b"], orient="col"),  # type: ignore[arg-type]
+        pl.from_torch(square_t, schema=["a", "b"], orient="col"),  # type: ignore[arg-type]
+    ):
+        assert_frame_equal(expected_square_col_oriented, df)
+
     # series
     expected_series = pl.Series(
         name="tensor",

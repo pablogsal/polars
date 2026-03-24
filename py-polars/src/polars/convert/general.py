@@ -341,7 +341,7 @@ def from_numpy(
     orient : {None, 'col', 'row'}
         Whether to interpret two-dimensional data as columns or as rows. If None,
         the orientation is inferred by matching the columns and data dimensions. If
-        this does not yield conclusive results, column orientation is used.
+        this does not yield conclusive results, row orientation is used.
 
     Returns
     -------
@@ -405,7 +405,7 @@ def from_torch(
     orient : {None, 'col', 'row'}
         Whether to interpret two-dimensional data as columns or as rows. If None,
         the orientation is inferred by matching the columns and data dimensions. If
-        this does not yield conclusive results, column orientation is used.
+        this does not yield conclusive results, row orientation is used.
     force : bool
         If False, the conversion is performed only if the Tensor is on CPU, does not
         require grad, does not have its conjugate bit set, and is of a dtype (and
