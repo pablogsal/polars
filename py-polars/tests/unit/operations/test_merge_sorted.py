@@ -345,3 +345,28 @@ def test_merge_sorted_multiple_associativity(n_dfs: int, lazy: bool) -> None:
             df_chained_from_right = df.merge_sorted(df_chained_from_right, key="n")
 
         assert_frame_equal(df_chained_from_right, df_full)
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_merge_sorted_deep_chain_with_sort_collect(streaming: bool) -> None:
+    dfs = [
+        pl.DataFrame({"foo": [f"{i}-a", f"{i}-b"], "n": [10 + i, 110 + i]})
+        for i in range(64)
+    ]
+    lfs = [df.lazy() for df in dfs]
+
+    chained = lfs[0]
+    for lf in lfs[1:]:
+        chained = chained.merge_sorted(lf, key="n")
+
+    expected = pl.DataFrame(
+        {
+            "foo": [f"{i}-a" for i in range(64)] + [f"{i}-b" for i in range(64)],
+            "n": [10 + i for i in range(64)] + [110 + i for i in range(64)],
+        }
+    )
+    result = chained.sort("n", "foo").collect(
+        engine="streaming" if streaming else "in-memory"
+    )
+
+    assert_frame_equal(result, expected)

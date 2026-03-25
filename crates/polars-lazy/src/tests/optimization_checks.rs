@@ -507,6 +507,388 @@ fn test_flatten_unions() -> PolarsResult<()> {
     Ok(())
 }
 
+#[cfg(feature = "merge_sorted")]
+fn merge_sorted_chain(n_inputs: i64) -> LazyFrame {
+    merge_sorted_chain_with_key_and_offset(n_inputs, "a", 0)
+}
+
+#[cfg(feature = "merge_sorted")]
+fn merge_sorted_chain_with_key_and_offset(n_inputs: i64, key: &str, offset: i64) -> LazyFrame {
+    let lfs = (0..n_inputs)
+        .map(|v| {
+            df! {
+                "id" => [offset + v],
+                "a" => [v],
+                "b" => [v],
+            }
+            .unwrap()
+            .lazy()
+        })
+        .collect::<Vec<_>>();
+
+    lfs.into_iter()
+        .reduce(|left, right| left.merge_sorted(right, key).unwrap())
+        .unwrap()
+}
+
+#[cfg(feature = "merge_sorted")]
+fn merge_sorted_depth(root: Node, lp_arena: &Arena<IR>) -> usize {
+    let mut max_depth = 0;
+    let mut stack = vec![(root, 0)];
+
+    while let Some((node, depth)) = stack.pop() {
+        if let IR::MergeSorted {
+            input_left,
+            input_right,
+            ..
+        } = lp_arena.get(node)
+        {
+            let depth = depth + 1;
+            max_depth = max_depth.max(depth);
+            stack.push((*input_left, depth));
+            stack.push((*input_right, depth));
+        }
+    }
+
+    max_depth
+}
+
+#[cfg(feature = "merge_sorted")]
+fn merge_sorted_leaf_count(root: Node, lp_arena: &Arena<IR>) -> usize {
+    merge_sorted_leaf_count_for_key(root, None, lp_arena)
+}
+
+#[cfg(feature = "merge_sorted")]
+fn merge_sorted_leaf_count_for_key(root: Node, key: Option<&str>, lp_arena: &Arena<IR>) -> usize {
+    let mut leaf_count = 0;
+    let mut stack = vec![root];
+
+    while let Some(node) = stack.pop() {
+        match lp_arena.get(node) {
+            IR::MergeSorted {
+                input_left,
+                input_right,
+                key: merge_key,
+            } if key.is_none_or(|key| merge_key.as_str() == key) => {
+                stack.push(*input_left);
+                stack.push(*input_right);
+            },
+            _ => leaf_count += 1,
+        }
+    }
+
+    leaf_count
+}
+
+#[cfg(feature = "merge_sorted")]
+fn merge_sorted_leaf_ids_in_order(root: Node, lp_arena: &Arena<IR>) -> Vec<i64> {
+    fn collect(node: Node, lp_arena: &Arena<IR>, out: &mut Vec<i64>) {
+        match lp_arena.get(node) {
+            IR::MergeSorted {
+                input_left,
+                input_right,
+                ..
+            } => {
+                collect(*input_left, lp_arena, out);
+                collect(*input_right, lp_arena, out);
+            },
+            IR::DataFrameScan { df, .. } => {
+                let id = df.column("id").unwrap().i64().unwrap().get(0).unwrap();
+                out.push(id);
+            },
+            ir => panic!("expected merge_sorted leaf to be DataFrameScan, got {ir:?}"),
+        }
+    }
+
+    let mut out = vec![];
+    collect(root, lp_arena, &mut out);
+    out
+}
+
+#[cfg(feature = "merge_sorted")]
+fn union_depth(root: Node, lp_arena: &Arena<IR>) -> usize {
+    let mut max_depth = 0;
+    let mut stack = vec![(root, 0)];
+
+    while let Some((node, depth)) = stack.pop() {
+        if let IR::Union { inputs, .. } = lp_arena.get(node) {
+            let depth = depth + 1;
+            max_depth = max_depth.max(depth);
+            stack.extend(inputs.iter().copied().map(|input| (input, depth)));
+        }
+    }
+
+    max_depth
+}
+
+#[cfg(feature = "merge_sorted")]
+fn union_leaf_count(root: Node, lp_arena: &Arena<IR>) -> usize {
+    let mut leaf_count = 0;
+    let mut stack = vec![root];
+
+    while let Some(node) = stack.pop() {
+        match lp_arena.get(node) {
+            IR::Union { inputs, .. } => stack.extend(inputs.iter().copied()),
+            _ => leaf_count += 1,
+        }
+    }
+
+    leaf_count
+}
+
+#[cfg(feature = "merge_sorted")]
+fn union_leaf_ids_in_order(root: Node, lp_arena: &Arena<IR>) -> Vec<i64> {
+    fn collect(node: Node, lp_arena: &Arena<IR>, out: &mut Vec<i64>) {
+        match lp_arena.get(node) {
+            IR::Union { inputs, .. } => {
+                for input in inputs {
+                    collect(*input, lp_arena, out);
+                }
+            },
+            IR::DataFrameScan { df, .. } => {
+                let id = df.column("id").unwrap().i64().unwrap().get(0).unwrap();
+                out.push(id);
+            },
+            ir => panic!("expected union leaf to be DataFrameScan, got {ir:?}"),
+        }
+    }
+
+    let mut out = vec![];
+    collect(root, lp_arena, &mut out);
+    out
+}
+
+#[cfg(feature = "merge_sorted")]
+fn contains_union(root: Node, lp_arena: &Arena<IR>) -> bool {
+    lp_arena
+        .iter(root)
+        .any(|(_, ir)| matches!(ir, IR::Union { .. }))
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_chain() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let root = merge_sorted_chain(8).optimize(&mut lp_arena, &mut expr_arena)?;
+    let expected_ids = (0..8).collect::<Vec<_>>();
+
+    assert!(matches!(lp_arena.get(root), IR::MergeSorted { .. }));
+    assert_eq!(merge_sorted_depth(root, &lp_arena), 3);
+    assert_eq!(merge_sorted_leaf_count(root, &lp_arena), 8);
+    assert_eq!(
+        merge_sorted_leaf_ids_in_order(root, &lp_arena),
+        expected_ids
+    );
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_multiple_components() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let args = UnionArgs {
+        rechunk: false,
+        parallel: true,
+        ..Default::default()
+    };
+
+    let root = concat(
+        &[
+            merge_sorted_chain_with_key_and_offset(7, "a", 0),
+            merge_sorted_chain_with_key_and_offset(7, "a", 7),
+        ],
+        args,
+    )?
+    .optimize(&mut lp_arena, &mut expr_arena)?;
+
+    let inputs = match lp_arena.get(root) {
+        IR::Union { inputs, .. } => inputs,
+        ir => panic!("expected union root, got {ir:?}"),
+    };
+    let expected_components = [(0..7).collect::<Vec<_>>(), (7..14).collect::<Vec<_>>()];
+
+    assert_eq!(inputs.len(), 2);
+    for (input, expected_ids) in inputs.iter().zip(expected_components) {
+        assert!(matches!(lp_arena.get(*input), IR::MergeSorted { .. }));
+        assert_eq!(merge_sorted_depth(*input, &lp_arena), 3);
+        assert_eq!(merge_sorted_leaf_count(*input, &lp_arena), 7);
+        assert_eq!(
+            merge_sorted_leaf_ids_in_order(*input, &lp_arena),
+            expected_ids
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_chain_odd_length() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let root = merge_sorted_chain(7).optimize(&mut lp_arena, &mut expr_arena)?;
+    let expected_ids = (0..7).collect::<Vec<_>>();
+
+    assert!(matches!(lp_arena.get(root), IR::MergeSorted { .. }));
+    assert_eq!(merge_sorted_depth(root, &lp_arena), 3);
+    assert_eq!(merge_sorted_leaf_count(root, &lp_arena), 7);
+    assert_eq!(
+        merge_sorted_leaf_ids_in_order(root, &lp_arena),
+        expected_ids
+    );
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_chain_with_order_sensitive_consumer() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let root = merge_sorted_chain(8)
+        .with_row_index("idx", None)
+        .optimize(&mut lp_arena, &mut expr_arena)?;
+
+    let merge_input = match lp_arena.get(root) {
+        IR::MapFunction {
+            input,
+            function: FunctionIR::RowIndex { .. },
+        } => *input,
+        ir => panic!("expected row_index map root, got {ir:?}"),
+    };
+
+    assert!(matches!(lp_arena.get(merge_input), IR::MergeSorted { .. }));
+    assert_eq!(merge_sorted_depth(merge_input, &lp_arena), 3);
+    assert_eq!(merge_sorted_leaf_count(merge_input, &lp_arena), 8);
+    assert_eq!(
+        merge_sorted_leaf_ids_in_order(merge_input, &lp_arena),
+        (0..8).collect::<Vec<_>>()
+    );
+    assert!(!contains_union(root, &lp_arena));
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_chain_before_unique_to_union() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let root = merge_sorted_chain(8)
+        .unique(None, UniqueKeepStrategy::Any)
+        .optimize(&mut lp_arena, &mut expr_arena)?;
+
+    let union_input = match lp_arena.get(root) {
+        IR::Distinct { input, .. } => *input,
+        ir => panic!("expected distinct root, got {ir:?}"),
+    };
+
+    assert!(matches!(lp_arena.get(union_input), IR::Union { .. }));
+    assert_eq!(union_depth(union_input, &lp_arena), 3);
+    assert_eq!(union_leaf_count(union_input, &lp_arena), 8);
+    assert_eq!(
+        union_leaf_ids_in_order(union_input, &lp_arena),
+        (0..8).collect::<Vec<_>>()
+    );
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_respects_key_boundaries() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let root = merge_sorted_chain_with_key_and_offset(4, "a", 0)
+        .merge_sorted(merge_sorted_chain_with_key_and_offset(4, "a", 4), "b")?
+        .optimize(&mut lp_arena, &mut expr_arena)?;
+
+    let (left, right) = match lp_arena.get(root) {
+        IR::MergeSorted {
+            input_left,
+            input_right,
+            key,
+        } => {
+            assert_eq!(key.as_str(), "b");
+            (*input_left, *input_right)
+        },
+        ir => panic!("expected merge_sorted root, got {ir:?}"),
+    };
+
+    assert_eq!(
+        merge_sorted_leaf_count_for_key(root, Some("b"), &lp_arena),
+        2
+    );
+    assert_eq!(
+        merge_sorted_leaf_count_for_key(left, Some("a"), &lp_arena),
+        4
+    );
+    assert_eq!(
+        merge_sorted_leaf_count_for_key(right, Some("a"), &lp_arena),
+        4
+    );
+    assert_eq!(merge_sorted_depth(left, &lp_arena), 2);
+    assert_eq!(merge_sorted_depth(right, &lp_arena), 2);
+    assert_eq!(
+        merge_sorted_leaf_ids_in_order(left, &lp_arena),
+        (0..4).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        merge_sorted_leaf_ids_in_order(right, &lp_arena),
+        (4..8).collect::<Vec<_>>()
+    );
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_chain_before_sort_to_union() -> PolarsResult<()> {
+    let (mut expr_arena, mut lp_arena) = get_arenas();
+
+    let root = merge_sorted_chain(8)
+        .sort(["a"], Default::default())
+        .optimize(&mut lp_arena, &mut expr_arena)?;
+
+    let union_input = match lp_arena.get(root) {
+        IR::Sort { input, .. } => *input,
+        ir => panic!("expected sort root, got {ir:?}"),
+    };
+
+    assert!(matches!(lp_arena.get(union_input), IR::Union { .. }));
+    assert_eq!(union_depth(union_input, &lp_arena), 3);
+    assert_eq!(union_leaf_count(union_input, &lp_arena), 8);
+    assert_eq!(
+        union_leaf_ids_in_order(union_input, &lp_arena),
+        (0..8).collect::<Vec<_>>()
+    );
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "merge_sorted")]
+fn test_rebalance_merge_sorted_deep_chain_collect_after_sort() -> PolarsResult<()> {
+    let n_inputs = 257_i64;
+    let out = merge_sorted_chain(n_inputs)
+        .sort(["a"], Default::default())
+        .collect()?;
+
+    let values = (0..n_inputs).collect::<Vec<_>>();
+    let expected = df! {
+        "id" => values.clone(),
+        "a" => values.clone(),
+        "b" => values,
+    }?;
+
+    assert!(out.equals(&expected));
+
+    Ok(())
+}
+
 fn num_occurrences(s: &str, needle: &str) -> usize {
     let mut i = 0;
     let mut num = 0;
