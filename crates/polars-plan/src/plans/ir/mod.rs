@@ -159,6 +159,11 @@ pub enum IR {
         input_right: Node,
         key: PlSmallStr,
     },
+    #[cfg(feature = "merge_sorted")]
+    MergeSortedMany {
+        inputs: Vec<Node>,
+        key: PlSmallStr,
+    },
     #[default]
     Invalid,
 }

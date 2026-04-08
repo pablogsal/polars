@@ -1,6 +1,259 @@
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+
 use arrow::legacy::utils::CustomIterTools;
 use polars_core::prelude::*;
+use polars_core::utils::concat_df_unchecked;
 use polars_core::{with_match_categorical_physical_type, with_match_physical_numeric_polars_type};
+use polars_utils::total_ord::ToTotalOrd;
+
+#[derive(Clone, Copy)]
+struct KeyBytes {
+    ptr: *const u8,
+    len: usize,
+}
+
+impl KeyBytes {
+    unsafe fn as_slice(self) -> &'static [u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl PartialEq for KeyBytes {
+    fn eq(&self, other: &Self) -> bool {
+        // SAFETY: pointers come from row-encoded buffers kept alive for the duration of the merge.
+        unsafe { self.as_slice() == other.as_slice() }
+    }
+}
+
+impl Eq for KeyBytes {}
+
+impl PartialOrd for KeyBytes {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyBytes {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // SAFETY: pointers come from row-encoded buffers kept alive for the duration of the merge.
+        unsafe { self.as_slice().cmp(other.as_slice()) }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct HeapEntry<K> {
+    input_idx: usize,
+    key: K,
+}
+
+impl<K: Ord> Ord for HeapEntry<K> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .key
+            .cmp(&self.key)
+            .then_with(|| other.input_idx.cmp(&self.input_idx))
+    }
+}
+
+impl<K: Ord> PartialOrd for HeapEntry<K> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn encoded_key_at(encoded: &BinaryOffsetChunked, idx: usize) -> KeyBytes {
+    let value = unsafe { encoded.value_unchecked(idx) };
+    KeyBytes {
+        ptr: value.as_ptr(),
+        len: value.len(),
+    }
+}
+
+pub fn _merge_sorted_dfs_many(
+    dfs: &[DataFrame],
+    key: &str,
+    check_schema: bool,
+) -> PolarsResult<DataFrame> {
+    let Some((first, rest)) = dfs.split_first() else {
+        polars_bail!(NoData: "empty container given");
+    };
+
+    if dfs.len() == 2 {
+        let left = &dfs[0];
+        let right = &dfs[1];
+        let lhs = left.column(key)?;
+        let rhs = right.column(key)?;
+        return _merge_sorted_dfs(
+            left,
+            right,
+            lhs.as_materialized_series(),
+            rhs.as_materialized_series(),
+            check_schema,
+        );
+    }
+
+    if check_schema {
+        for df in rest {
+            first.schema_equal(df)?;
+        }
+    }
+
+    let first_key = first.column(key)?.as_materialized_series();
+    let dtype = first_key.dtype();
+
+    let mut non_empty = Vec::with_capacity(dfs.len());
+    for df in dfs {
+        let key_s = df.column(key)?.as_materialized_series();
+
+        polars_ensure!(
+            dtype == key_s.dtype(),
+            ComputeError: "merge-sort datatype mismatch: {} != {}", dtype, key_s.dtype()
+        );
+
+        if !key_s.is_empty() {
+            non_empty.push((df, key_s.clone()));
+        }
+    }
+
+    match non_empty.len() {
+        0 => return Ok(first.clone()),
+        1 => return Ok(non_empty[0].0.clone()),
+        _ => {},
+    }
+
+    let lengths = non_empty
+        .iter()
+        .map(|(df, _)| df.height())
+        .collect::<Vec<_>>();
+    let gather_idxs = if dtype.is_nested() || dtype.is_categorical() || dtype.is_enum() {
+        let encoded_keys = non_empty
+            .iter()
+            .map(|(_, key_s)| key_s.row_encode_ordered(false, false))
+            .collect::<PolarsResult<Vec<_>>>()?;
+
+        merge_ordered_gather_idxs(&lengths, |input_idx, idx| {
+            encoded_key_at(&encoded_keys[input_idx], idx)
+        })
+    } else {
+        let physical_keys = non_empty
+            .iter()
+            .map(|(_, key_s)| key_s.to_physical_repr().into_owned())
+            .collect::<Vec<_>>();
+
+        match physical_keys[0].dtype() {
+            DataType::Null => {
+                let merged = concat_df_unchecked(non_empty.iter().map(|(df, _)| *df));
+                return Ok(merged);
+            },
+            DataType::Boolean => {
+                let keys = physical_keys
+                    .iter()
+                    .map(|s| s.bool().unwrap())
+                    .collect::<Vec<_>>();
+                merge_ordered_gather_idxs(&lengths, |input_idx, idx| unsafe {
+                    keys[input_idx].get_unchecked(idx)
+                })
+            },
+            DataType::Binary => {
+                let keys = physical_keys
+                    .iter()
+                    .map(|s| s.binary().unwrap())
+                    .collect::<Vec<_>>();
+                merge_ordered_gather_idxs(&lengths, |input_idx, idx| unsafe {
+                    keys[input_idx].get_unchecked(idx)
+                })
+            },
+            DataType::String => {
+                let keys = physical_keys
+                    .iter()
+                    .map(|s| s.str().unwrap())
+                    .collect::<Vec<_>>();
+                merge_ordered_gather_idxs(&lengths, |input_idx, idx| unsafe {
+                    keys[input_idx].get_unchecked(idx)
+                })
+            },
+            DataType::BinaryOffset => {
+                let keys = physical_keys
+                    .iter()
+                    .map(|s| s.binary_offset().unwrap())
+                    .collect::<Vec<_>>();
+                merge_ordered_gather_idxs(&lengths, |input_idx, idx| unsafe {
+                    keys[input_idx].get_unchecked(idx)
+                })
+            },
+            dt if dt.is_primitive_numeric() => {
+                with_match_physical_numeric_polars_type!(dt, |$T| {
+                    let keys = physical_keys
+                        .iter()
+                        .map(|s| {
+                            let ca: &ChunkedArray<$T> = s.as_ref().as_ref().as_ref();
+                            ca
+                        })
+                        .collect::<Vec<_>>();
+
+                    merge_ordered_gather_idxs(&lengths, |input_idx, idx| unsafe {
+                        keys[input_idx].get_unchecked(idx).to_total_ord()
+                    })
+                })
+            },
+            dt => polars_bail!(op = "merge_sorted", dt),
+        }
+    };
+
+    let merged = concat_df_unchecked(non_empty.iter().map(|(df, _)| *df));
+    Ok(unsafe { merged.take_slice_unchecked(&gather_idxs) })
+}
+
+fn merge_ordered_gather_idxs<K: Ord + Copy>(
+    lengths: &[usize],
+    mut key_at: impl FnMut(usize, usize) -> K,
+) -> Vec<IdxSize> {
+    let mut positions = vec![0; lengths.len()];
+    let mut heap = BinaryHeap::with_capacity(lengths.len());
+    let total_len = lengths.iter().sum::<usize>();
+    let mut offsets = Vec::with_capacity(lengths.len());
+    let mut offset = 0usize;
+    for len in lengths {
+        offsets.push(offset);
+        offset += *len;
+    }
+
+    let mut gather_idxs = Vec::with_capacity(total_len);
+
+    for input_idx in 0..lengths.len() {
+        heap.push(HeapEntry {
+            input_idx,
+            key: key_at(input_idx, 0),
+        });
+    }
+
+    while let Some(HeapEntry { input_idx, .. }) = heap.pop() {
+        let start = positions[input_idx];
+        positions[input_idx] += 1;
+
+        while positions[input_idx] < lengths[input_idx] {
+            let current = key_at(input_idx, positions[input_idx]);
+            if heap.peek().is_some_and(|next| current > next.key) {
+                break;
+            }
+            positions[input_idx] += 1;
+        }
+
+        let global_offset = offsets[input_idx];
+        gather_idxs.extend(
+            (global_offset + start..global_offset + positions[input_idx]).map(|idx| idx as IdxSize),
+        );
+
+        if positions[input_idx] < lengths[input_idx] {
+            heap.push(HeapEntry {
+                input_idx,
+                key: key_at(input_idx, positions[input_idx]),
+            });
+        }
+    }
+    gather_idxs
+}
 
 pub fn _merge_sorted_dfs(
     left: &DataFrame,

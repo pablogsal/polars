@@ -256,6 +256,17 @@ impl<'a> IRDisplay<'a> {
                 self.with_root(*input_right)._format(f, sub_indent)?;
                 write!(f, "\n{:indent$}END MERGE_SORTED", "")
             },
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { inputs, key: _ } => {
+                write_ir_non_recursive(f, ir_node, self.lp.expr_arena, output_schema, indent)?;
+
+                let sub_sub_indent = sub_indent + 2;
+                for (i, plan) in inputs.iter().enumerate() {
+                    write!(f, "\n{:sub_indent$}PLAN {i}:", "")?;
+                    self.with_root(*plan)._format(f, sub_sub_indent)?;
+                }
+                write!(f, "\n{:indent$}END MERGE_SORTED_MULTIPLE", "")
+            },
             ir_node => {
                 write_ir_non_recursive(f, ir_node, self.lp.expr_arena, output_schema, indent)?;
                 for input in ir_node.inputs() {
@@ -1003,6 +1014,10 @@ pub fn write_ir_non_recursive(
             input_right: _,
             key,
         } => write!(f, "{:indent$}MERGE SORTED ON '{key}'", ""),
+        #[cfg(feature = "merge_sorted")]
+        IR::MergeSortedMany { inputs: _, key } => {
+            write!(f, "{:indent$}MERGE SORTED MULTIPLE ON '{key}'", "")
+        },
         IR::Invalid => write!(f, "{:indent$}INVALID", ""),
     }
 }

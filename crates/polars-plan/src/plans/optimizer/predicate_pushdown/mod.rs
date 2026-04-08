@@ -683,7 +683,7 @@ impl PredicatePushDown {
                 Ok(PythonScan { options })
             },
             #[cfg(feature = "merge_sorted")]
-            lp @ MergeSorted { .. } => {
+            lp @ MergeSorted { .. } | lp @ MergeSortedMany { .. } => {
                 self.pushdown_and_continue(lp, acc_predicates, lp_arena, expr_arena, false)
             },
             Invalid => unreachable!(),

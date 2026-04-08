@@ -264,6 +264,10 @@ impl Hash for IRHashWrap<'_> {
             } => {
                 key.hash(state);
             },
+            #[cfg(feature = "merge_sorted")]
+            IR::MergeSortedMany { inputs: _, key } => {
+                key.hash(state);
+            },
             IR::Invalid => unreachable!(),
         }
     }

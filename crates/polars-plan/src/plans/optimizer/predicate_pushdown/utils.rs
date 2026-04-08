@@ -449,7 +449,7 @@ pub(crate) fn ir_removes_rows(ir: &IR) -> bool {
         Sort { slice, .. } => slice.is_some(),
 
         #[cfg(feature = "merge_sorted")]
-        MergeSorted { .. } => false,
+        MergeSorted { .. } | MergeSortedMany { .. } => false,
 
         #[cfg(feature = "python")]
         PythonScan { options } => options.n_rows.is_some(),

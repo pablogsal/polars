@@ -63,7 +63,7 @@ impl IR {
             SimpleProjection { .. } => Exprs::Empty,
             SinkMultiple { .. } => Exprs::Empty,
             #[cfg(feature = "merge_sorted")]
-            MergeSorted { .. } => Exprs::Empty,
+            MergeSorted { .. } | MergeSortedMany { .. } => Exprs::Empty,
 
             #[cfg(feature = "python")]
             PythonScan { options } => match &options.predicate {
@@ -135,7 +135,7 @@ impl IR {
             SimpleProjection { .. } => ExprsMut::Empty,
             SinkMultiple { .. } => ExprsMut::Empty,
             #[cfg(feature = "merge_sorted")]
-            MergeSorted { .. } => ExprsMut::Empty,
+            MergeSorted { .. } | MergeSortedMany { .. } => ExprsMut::Empty,
 
             #[cfg(feature = "python")]
             PythonScan { options } => match &mut options.predicate {
@@ -204,9 +204,10 @@ impl IR {
     pub fn inputs(&'_ self) -> Inputs<'_> {
         use IR::*;
         match self {
-            Union { inputs, .. } | HConcat { inputs, .. } | SinkMultiple { inputs } => {
-                Inputs::slice(inputs)
-            },
+            Union { inputs, .. }
+            | HConcat { inputs, .. }
+            | SinkMultiple { inputs }
+            | MergeSortedMany { inputs, .. } => Inputs::slice(inputs),
             Slice { input, .. } => Inputs::single(*input),
             Filter { input, .. } => Inputs::single(*input),
             Select { input, .. } => Inputs::single(*input),
@@ -243,9 +244,10 @@ impl IR {
     pub fn inputs_mut(&'_ mut self) -> InputsMut<'_> {
         use IR::*;
         match self {
-            Union { inputs, .. } | HConcat { inputs, .. } | SinkMultiple { inputs } => {
-                InputsMut::slice(inputs)
-            },
+            Union { inputs, .. }
+            | HConcat { inputs, .. }
+            | SinkMultiple { inputs }
+            | MergeSortedMany { inputs, .. } => InputsMut::slice(inputs),
             Slice { input, .. } => InputsMut::single(input),
             Filter { input, .. } => InputsMut::single(input),
             Select { input, .. } => InputsMut::single(input),

@@ -440,6 +440,32 @@ impl SimplifyIRNodeOrder<'_> {
                     );
                 }
             },
+            #[cfg(feature = "merge_sorted")]
+            IR::MergeSortedMany { inputs, key: _ } => {
+                assert_eq!(out_edges.len(), 1);
+                let out_edge_key = *out_edges.first().unwrap();
+
+                if get_edge!(out_edge_key).is_unordered()
+                    || in_edges.iter().all(|k| get_edge!(*k).is_unordered())
+                {
+                    *get_edge_mut!(out_edge_key) = Edge::Unordered;
+                    for k in in_edges.iter() {
+                        *get_edge_mut!(*k) = Edge::Unordered;
+                    }
+                    let inputs = inputs.clone();
+
+                    self.ir_arena.replace(
+                        current_ir_node,
+                        IR::Union {
+                            inputs,
+                            options: UnionOptions {
+                                maintain_order: false,
+                                ..Default::default()
+                            },
+                        },
+                    );
+                }
+            },
 
             IR::MapFunction { input: _, function } => {
                 let ([in_edge], [out_edge]) = unpack_edges!(2);

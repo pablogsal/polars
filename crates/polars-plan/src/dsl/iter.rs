@@ -46,6 +46,8 @@ impl DslPlan {
                 scratch.push(input_left);
                 scratch.push(input_right);
             },
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { inputs, .. } => scratch.extend(inputs),
         }
     }
 }

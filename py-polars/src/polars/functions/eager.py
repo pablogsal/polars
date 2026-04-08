@@ -672,11 +672,7 @@ def merge_sorted(items: Iterable[PolarsType], key: str) -> PolarsType:
         raise TypeError(msg)
 
     frames = [df.lazy() for df in elems]
-
-    def reduce_fn(x: pl.LazyFrame, y: pl.LazyFrame) -> pl.LazyFrame:
-        return x.merge_sorted(y, key=key)
-
-    lf = reduce_balanced(reduce_fn, frames)
+    lf = wrap_ldf(plr.merge_sorted_lf(frames, key))
     eager = isinstance(elems[0], pl.DataFrame)
     return lf.collect() if eager else lf  # type: ignore[return-value]
 

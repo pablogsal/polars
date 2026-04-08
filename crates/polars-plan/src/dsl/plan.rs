@@ -170,6 +170,11 @@ pub enum DslPlan {
         input_right: Arc<DslPlan>,
         key: PlSmallStr,
     },
+    #[cfg(feature = "merge_sorted")]
+    MergeSortedMany {
+        inputs: Vec<DslPlan>,
+        key: PlSmallStr,
+    },
     IR {
         // Keep the original Dsl around as we need that for serialization.
         dsl: Arc<DslPlan>,
@@ -212,6 +217,8 @@ impl Clone for DslPlan {
             Self::Pivot { input, on, on_columns, index, values, agg, separator, maintain_order, column_naming }  => Self::Pivot { input: input.clone(), on: on.clone(), on_columns: on_columns.clone(), index: index.clone(), values: values.clone(), agg: agg.clone(), separator: separator.clone(), maintain_order: *maintain_order, column_naming: *column_naming },
             #[cfg(feature = "merge_sorted")]
             Self::MergeSorted { input_left, input_right, key } => Self::MergeSorted { input_left: input_left.clone(), input_right: input_right.clone(), key: key.clone() },
+            #[cfg(feature = "merge_sorted")]
+            Self::MergeSortedMany { inputs, key } => Self::MergeSortedMany { inputs: inputs.clone(), key: key.clone() },
             Self::IR {node, dsl, version} => Self::IR {node: *node, dsl: dsl.clone(), version: *version},
         }
     }

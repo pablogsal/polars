@@ -284,6 +284,15 @@ pub struct MergeSorted {
 }
 
 #[pyclass(frozen)]
+/// Merge sorted operation across multiple inputs
+pub struct MergeSortedMultiple {
+    #[pyo3(get)]
+    inputs: Vec<usize>,
+    #[pyo3(get)]
+    key: String,
+}
+
+#[pyclass(frozen)]
 /// Adding columns to the table without a Join
 pub struct HStack {
     #[pyo3(get)]
@@ -747,6 +756,12 @@ pub(crate) fn into_py(py: Python<'_>, plan: &IR) -> PyResult<Py<PyAny>> {
         } => MergeSorted {
             input_left: input_left.0,
             input_right: input_right.0,
+            key: key.to_string(),
+        }
+        .into_py_any(py),
+        #[cfg(feature = "merge_sorted")]
+        IR::MergeSortedMany { inputs, key } => MergeSortedMultiple {
+            inputs: inputs.iter().map(|input| input.0).collect(),
             key: key.to_string(),
         }
         .into_py_any(py),

@@ -794,6 +794,19 @@ impl ProjectionPushDown {
                     key,
                 })
             },
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { mut inputs, key } => {
+                if ctx.has_pushed_down() {
+                    add_str_to_accumulated(key.clone(), &mut ctx, expr_arena);
+                };
+
+                for input in &mut inputs {
+                    let branch_ctx = ctx.clone();
+                    self.pushdown_and_assign(*input, branch_ctx, lp_arena, expr_arena)?;
+                }
+
+                Ok(MergeSortedMany { inputs, key })
+            },
             Invalid => unreachable!(),
         }
     }

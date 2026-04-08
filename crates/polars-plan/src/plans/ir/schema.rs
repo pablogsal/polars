@@ -45,6 +45,8 @@ impl IR {
             SimpleProjection { .. } => "simple_projection",
             #[cfg(feature = "merge_sorted")]
             MergeSorted { .. } => "merge_sorted",
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { .. } => "merge_sorted_multiple",
             Invalid => "invalid",
         }
     }
@@ -111,6 +113,8 @@ impl IR {
             ExtContext { schema, .. } => schema,
             #[cfg(feature = "merge_sorted")]
             MergeSorted { input_left, .. } => return arena.get(*input_left).schema(arena),
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { inputs, .. } => return arena.get(inputs[0]).schema(arena),
             Invalid => unreachable!(),
         };
         Cow::Borrowed(schema)
@@ -171,6 +175,8 @@ impl IR {
             },
             #[cfg(feature = "merge_sorted")]
             MergeSorted { input_left, .. } => IR::schema_with_cache(*input_left, arena, cache),
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { inputs, .. } => IR::schema_with_cache(inputs[0], arena, cache),
             Invalid => unreachable!(),
         };
         cache.insert(node, schema.clone());

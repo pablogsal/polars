@@ -60,6 +60,7 @@ fn _ir_nodes(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<GroupBy>().unwrap();
     m.add_class::<Join>().unwrap();
     m.add_class::<MergeSorted>().unwrap();
+    m.add_class::<MergeSortedMultiple>().unwrap();
     m.add_class::<HStack>().unwrap();
     m.add_class::<Reduce>().unwrap();
     m.add_class::<Distinct>().unwrap();
@@ -202,6 +203,9 @@ pub fn _polars_runtime(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(functions::collect_all_with_callback))
         .unwrap();
     m.add_wrapped(wrap_pyfunction!(functions::concat_lf))
+        .unwrap();
+    #[cfg(feature = "merge_sorted")]
+    m.add_wrapped(wrap_pyfunction!(functions::merge_sorted_lf))
         .unwrap();
     m.add_wrapped(wrap_pyfunction!(functions::concat_arr))
         .unwrap();

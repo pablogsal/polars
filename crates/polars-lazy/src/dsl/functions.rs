@@ -72,6 +72,35 @@ pub fn concat<L: AsRef<[LazyFrame]>>(inputs: L, args: UnionArgs) -> PolarsResult
     concat_impl(inputs, args)
 }
 
+#[cfg(feature = "merge_sorted")]
+pub fn merge_sorted<L: AsRef<[LazyFrame]>>(inputs: L, key: PlSmallStr) -> PolarsResult<LazyFrame> {
+    let mut inputs = inputs.as_ref().to_vec();
+
+    let lf = std::mem::take(
+        inputs
+            .get_mut(0)
+            .ok_or_else(|| polars_err!(NoData: "empty container given"))?,
+    );
+
+    if inputs.is_empty() {
+        return Ok(lf);
+    }
+
+    let opt_state = lf.opt_state;
+    let cached_arenas = lf.cached_arena.clone();
+
+    let mut lps = Vec::with_capacity(inputs.len());
+    lps.push(lf.logical_plan);
+
+    for lf in &mut inputs[1..] {
+        let lp = std::mem::take(&mut lf.logical_plan);
+        lps.push(lp)
+    }
+
+    let lp = DslPlan::MergeSortedMany { inputs: lps, key };
+    Ok(LazyFrame::from_inner(lp, opt_state, cached_arenas))
+}
+
 #[cfg(test)]
 mod test {
     // used only if feature="diagonal_concat"

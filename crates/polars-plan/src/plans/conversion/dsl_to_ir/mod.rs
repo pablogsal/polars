@@ -1525,6 +1525,28 @@ pub fn to_alp_impl(lp: DslPlan, ctxt: &mut DslConversionContext) -> PolarsResult
                 key,
             }
         },
+        #[cfg(feature = "merge_sorted")]
+        DslPlan::MergeSortedMany { inputs, key } => {
+            let inputs = inputs
+                .into_iter()
+                .map(|lp| to_alp_impl(lp, ctxt))
+                .collect::<PolarsResult<Vec<_>>>()
+                .map_err(|e| e.context(failed_here!(merge_sorted)))?;
+
+            let first_schema = ctxt.lp_arena.get(inputs[0]).schema(ctxt.lp_arena);
+            first_schema
+                .try_get(key.as_str())
+                .map_err(|err| err.context("merge_sorted".into()))?;
+
+            for input in &inputs[1..] {
+                let schema = ctxt.lp_arena.get(*input).schema(ctxt.lp_arena);
+                first_schema
+                    .ensure_is_exact_match(&schema)
+                    .map_err(|err| err.context("merge_sorted".into()))?;
+            }
+
+            IR::MergeSortedMany { inputs, key }
+        },
         DslPlan::IR { node, dsl, version } => {
             return match node {
                 Some(node)

@@ -326,6 +326,14 @@ impl<'a> IRDotDisplay<'a> {
 
                 write_label(f, id, |f| write!(f, "MERGE_SORTED ON '{key}'",))?;
             },
+            #[cfg(feature = "merge_sorted")]
+            MergeSortedMany { inputs, key } => {
+                for input in inputs {
+                    recurse!(*input);
+                }
+
+                write_label(f, id, |f| write!(f, "MERGE_SORTED_MULTIPLE ON '{key}'",))?;
+            },
             Invalid => write_label(f, id, |f| f.write_str("INVALID"))?,
         }
 

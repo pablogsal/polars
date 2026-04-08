@@ -381,6 +381,78 @@ pub fn lower_ir(
                 input_right: phys_right,
             }
         },
+        #[cfg(feature = "merge_sorted")]
+        IR::MergeSortedMany { inputs, key } => {
+            use polars_plan::plans::{AExprBuilder, RowEncodingVariant};
+
+            let inputs = inputs.clone();
+            let key = key.clone();
+            let key_dtype = output_schema.try_get(key.as_str())?.clone();
+
+            let mut merge_inputs = inputs
+                .into_iter()
+                .map(|input| lower_ir!(input))
+                .collect::<PolarsResult<Vec<_>>>()?;
+
+            let build_merge_pair = |mut left: PhysStream,
+                                    mut right: PhysStream,
+                                    phys_sm: &mut SlotMap<PhysNodeKey, PhysNode>,
+                                    expr_cache: &mut ExprCache,
+                                    expr_arena: &mut Arena<AExpr>,
+                                    ctx: StreamingLowerIRContext<'_>|
+             -> PolarsResult<PhysStream> {
+                for s in [&mut left, &mut right] {
+                    let temp_key = unique_column_name();
+                    let mut expr = AExprBuilder::col(key.clone(), expr_arena);
+                    if key_dtype.is_nested() {
+                        expr = AExprBuilder::row_encode(
+                            vec![expr.expr_ir(temp_key.clone())],
+                            vec![key_dtype.clone()],
+                            RowEncodingVariant::Ordered {
+                                descending: None,
+                                nulls_last: None,
+                                broadcast_nulls: None,
+                            },
+                            expr_arena,
+                        );
+                    }
+
+                    *s = build_hstack_stream(
+                        *s,
+                        &[expr.expr_ir(temp_key)],
+                        expr_arena,
+                        phys_sm,
+                        expr_cache,
+                        ctx,
+                    )?;
+                }
+
+                Ok(PhysStream::first(phys_sm.insert(PhysNode::new(
+                    output_schema.clone(),
+                    PhysNodeKind::MergeSorted {
+                        input_left: left,
+                        input_right: right,
+                    },
+                ))))
+            };
+
+            while merge_inputs.len() > 1 {
+                let mut next = Vec::with_capacity(merge_inputs.len().div_ceil(2));
+                let mut iter = merge_inputs.into_iter();
+                while let Some(left) = iter.next() {
+                    if let Some(right) = iter.next() {
+                        next.push(build_merge_pair(
+                            left, right, phys_sm, expr_cache, expr_arena, ctx,
+                        )?);
+                    } else {
+                        next.push(left);
+                    }
+                }
+                merge_inputs = next;
+            }
+
+            return Ok(merge_inputs.pop().unwrap());
+        },
 
         IR::MapFunction { input, function } => {
             let function = function.clone();

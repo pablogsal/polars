@@ -233,6 +233,22 @@ pub fn concat_lf(
     Ok(lf.into())
 }
 
+#[cfg(feature = "merge_sorted")]
+#[pyfunction]
+pub fn merge_sorted_lf(seq: &Bound<'_, PyAny>, key: &str) -> PyResult<PyLazyFrame> {
+    let len = seq.len()?;
+    let mut lfs = Vec::with_capacity(len);
+
+    for res in seq.try_iter()? {
+        let item = res?;
+        let lf = get_lf(&item)?;
+        lfs.push(lf);
+    }
+
+    let lf = dsl::merge_sorted(lfs, key.into()).map_err(PyPolarsErr::from)?;
+    Ok(lf.into())
+}
+
 #[pyfunction]
 pub fn concat_list(s: Vec<PyExpr>) -> PyResult<PyExpr> {
     let s = s.into_iter().map(|e| e.inner).collect::<Vec<_>>();

@@ -472,7 +472,7 @@ fn is_sorted_rec(
         IR::Sink { .. } => None,
         IR::SinkMultiple { .. } => None,
         #[cfg(feature = "merge_sorted")]
-        IR::MergeSorted { key, .. } => Some(IRSorted(
+        IR::MergeSorted { key, .. } | IR::MergeSortedMany { key, .. } => Some(IRSorted(
             [Sorted {
                 column: key.clone(),
                 descending: None,

@@ -393,6 +393,15 @@ impl<'a> TreeFmtNode<'a> {
                             .chain([self.lp_node(Some("RIGHT PLAN:".to_string()), *input_right)])
                             .collect(),
                     ),
+                    #[cfg(feature = "merge_sorted")]
+                    MergeSortedMany { inputs, key } => ND(
+                        wh(h, &format!("MERGE SORTED MULTIPLE ON '{key}'")),
+                        inputs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, input)| self.lp_node(Some(format!("PLAN {i}:")), *input))
+                            .collect(),
+                    ),
                     Invalid => ND(wh(h, "INVALID"), vec![]),
                 }
             },

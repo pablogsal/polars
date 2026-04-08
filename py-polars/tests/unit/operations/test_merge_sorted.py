@@ -374,3 +374,17 @@ def test_merge_sorted_deep_chain_with_sort_collect(n_frames: int) -> None:
     result = chained.sort("n", "foo").collect()
 
     assert_frame_equal(result, expected)
+
+
+def test_merge_sorted_multiple_explain_uses_native_node() -> None:
+    lfs = [
+        pl.LazyFrame({"foo": [f"x{i}", f"y{i}"], "n": [10 + i, 110 + i]})
+        for i in range(4)
+    ]
+
+    explain = pl.merge_sorted(lfs, key="n").explain()
+    assert "MERGE SORTED MULTIPLE" in explain
+
+    explain = pl.merge_sorted(lfs, key="n").sort("n", "foo").explain()
+    assert "MERGE SORTED MULTIPLE" not in explain
+    assert "UNION" in explain

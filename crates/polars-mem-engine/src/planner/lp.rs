@@ -821,6 +821,19 @@ fn create_physical_plan_impl(
             };
             Ok(Box::new(exec))
         },
+        #[cfg(feature = "merge_sorted")]
+        MergeSortedMany { inputs, key } => {
+            let inputs = state.with_new_branch(|new_state| {
+                inputs
+                    .into_iter()
+                    .map(|node| recurse!(node, new_state))
+                    .collect::<PolarsResult<Vec<_>>>()
+            });
+            let inputs = inputs?;
+
+            let exec = executors::MergeSortedMany { inputs, key };
+            Ok(Box::new(exec))
+        },
         Invalid => unreachable!(),
     }
 }
