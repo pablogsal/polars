@@ -38,12 +38,16 @@ with contextlib.suppress(ImportError):  # Module not available when building doc
     # https://github.com/pola-rs/polars/pull/21829.
     import os
 
-    jemalloc_conf = "dirty_decay_ms:500,muzzy_decay_ms:-1"
+    # mimalloc reads its MIMALLOC_* options from the environment when it initializes,
+    # so these must be set before the bindings are imported. Only defaults are set
+    # here: anything already present in the environment takes precedence.
+    #
+    # MIMALLOC_PURGE_DELAY is the counterpart to jemalloc's dirty_decay_ms. mimalloc
+    # defaults to 10ms, which returns memory to the OS far more eagerly than is
+    # useful for a query engine.
+    os.environ.setdefault("MIMALLOC_PURGE_DELAY", "500")
     if os.environ.get("POLARS_THP") == "1":
-        jemalloc_conf += ",thp:always,metadata_thp:always"
-    if override := os.environ.get("_RJEM_MALLOC_CONF"):
-        jemalloc_conf += "," + override
-    os.environ["_RJEM_MALLOC_CONF"] = jemalloc_conf
+        os.environ.setdefault("MIMALLOC_ALLOW_LARGE_OS_PAGES", "1")
 
     # Initialize polars on the rust side. This function is highly
     # unsafe and should only be called once.

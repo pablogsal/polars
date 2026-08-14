@@ -358,8 +358,9 @@
 //! ```
 //!
 //! #### Notes
-//! [Benchmarks](https://github.com/pola-rs/polars/pull/3108) have shown that on Linux and macOS JeMalloc
-//! outperforms Mimalloc on all tasks and is therefore the default allocator used for the Python bindings on Unix platforms.
+//! Mimalloc is the allocator used for the Python bindings on all platforms.
+//! Earlier [benchmarks](https://github.com/pola-rs/polars/pull/3108) found JeMalloc to outperform
+//! Mimalloc on Linux and macOS, so measure against your own workload before picking either.
 //!
 //! ## Config with ENV vars
 //!

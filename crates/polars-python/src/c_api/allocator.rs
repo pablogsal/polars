@@ -1,15 +1,4 @@
-#[cfg(all(
-    not(feature = "default_alloc"),
-    target_family = "unix",
-    not(target_os = "emscripten"),
-))]
-#[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(all(
-    not(feature = "default_alloc"),
-    any(not(target_family = "unix"), target_os = "emscripten"),
-))]
+#[cfg(not(feature = "default_alloc"))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

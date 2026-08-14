@@ -322,11 +322,6 @@ jobs:
             echo "CFLAGS=$CC_FEATURES -mtune=$TUNE_CPU" >> $GITHUB_ENV
           fi
 
-      - name: Set jemalloc for aarch64 Linux
-        if: matrix.architecture == 'aarch64' && runner.os == 'Linux'
-        run: |
-          echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
-
       - name: Copy toolchain to py-polars/ (ARM64 Windows)
         # Manual fix for:
         #   TomlError: Unknown character "46" at row 1, col 2, pos 1:

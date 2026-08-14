@@ -487,8 +487,6 @@
                   lockFile = ./Cargo.lock;
                   outputHashes = {
                     "pyo3-0.24.2" = "sha256-0V4cT3DstG9mZvdIVZXzoQlNyvtBuLOvlMe1XDZp3/0=";
-                    "tikv-jemalloc-sys-0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7" =
-                      "sha256-nvXKBd5tKSe4hPTtMKriYhlgAML9gdDHZG8nNRzgjXM=";
                   };
                 };
               };

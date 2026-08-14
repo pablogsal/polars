@@ -50,15 +50,18 @@ rayon = { workspace = true }
 recursive = { workspace = true }
 serde_json = { workspace = true, optional = true }
 
+# Pinned exactly: mimalloc 0.1.50 switched its default from mimalloc v2 to v3, which
+# is a substantially different implementation. v2 is what we have been shipping on
+# Windows, so stay there until v3 has been benchmarked.
 [target.'cfg(any(not(target_family = "unix"), target_os = "emscripten"))'.dependencies]
-mimalloc = { version = "0.1", default-features = false }
+mimalloc = { version = "=0.1.48", default-features = false }
 
-# Feature background_threads is unsupported on MacOS (https://github.com/jemalloc/jemalloc/issues/843).
-[target.'cfg(all(target_family = "unix", not(target_os = "macos"), not(target_os = "emscripten")))'.dependencies]
-tikv-jemallocator = { version = "0.6.0", features = ["disable_initial_exec_tls", "background_threads"] }
-
-[target.'cfg(all(target_family = "unix", target_os = "macos"))'.dependencies]
-tikv-jemallocator = { version = "0.6.0", features = ["disable_initial_exec_tls"] }
+# Polars is loaded as a dlopen'ed Python extension module. libmimalloc-sys compiles
+# with `-ftls-model=initial-exec` unless `local_dynamic_tls` is enabled, which risks
+# exhausting glibc's static TLS surplus. Counterpart to the `disable_initial_exec_tls`
+# feature we used for jemalloc.
+[target.'cfg(all(target_family = "unix", not(target_os = "emscripten")))'.dependencies]
+mimalloc = { version = "=0.1.48", default-features = false, features = ["local_dynamic_tls"] }
 
 [dependencies.polars]
 workspace = true
